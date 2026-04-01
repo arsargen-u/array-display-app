@@ -1,25 +1,31 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 
-const FISH_COLORS = ['#f97316', '#06b6d4', '#8b5cf6', '#ec4899', '#10b981', '#f59e0b']
 const FISH_EMOJIS = ['🐠', '🐡', '🐟', '🦈', '🐙', '🦑']
 
-function makeFish(id, canvasW, canvasH) {
+const DIFF_CONFIG = {
+  easy:   { spawnRate: 0.013, speedMin: 1.0, speedRange: 1.0, sizeMin: 38, sizeRange: 18, questionEvery: 3 },
+  medium: { spawnRate: 0.018, speedMin: 1.5, speedRange: 2.0, sizeMin: 30, sizeRange: 20, questionEvery: 5 },
+  hard:   { spawnRate: 0.032, speedMin: 2.8, speedRange: 2.5, sizeMin: 20, sizeRange: 14, questionEvery: 7 },
+}
+
+function makeFish(id, canvasW, canvasH, diff) {
   const fromLeft = Math.random() > 0.5
-  const speed = 1.5 + Math.random() * 2
+  const speed = diff.speedMin + Math.random() * diff.speedRange
   return {
     id,
     x: fromLeft ? -60 : canvasW + 60,
     y: 60 + Math.random() * (canvasH - 120),
     vx: fromLeft ? speed : -speed,
     emoji: FISH_EMOJIS[Math.floor(Math.random() * FISH_EMOJIS.length)],
-    size: 30 + Math.random() * 20,
+    size: diff.sizeMin + Math.random() * diff.sizeRange,
     caught: false,
   }
 }
 
-export function FishCatch({ onNeedQuestion, questionInterval = 6 }) {
+export function FishCatch({ onNeedQuestion, difficulty = 'medium' }) {
   const canvasRef = useRef(null)
   const stateRef = useRef({ fish: [], nextId: 0, score: 0, frameId: null, totalCaught: 0 })
+  const diffRef = useRef(DIFF_CONFIG[difficulty] ?? DIFF_CONFIG.medium)
   const [score, setScore] = useState(0)
   const [paused, setPaused] = useState(false)
   const pausedRef = useRef(false)
@@ -30,14 +36,12 @@ export function FishCatch({ onNeedQuestion, questionInterval = 6 }) {
     const ctx = canvas.getContext('2d')
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-    // Ocean background
     const grad = ctx.createLinearGradient(0, 0, 0, canvas.height)
     grad.addColorStop(0, '#bae6fd')
     grad.addColorStop(1, '#0369a1')
     ctx.fillStyle = grad
     ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-    // Waves
     ctx.strokeStyle = 'rgba(255,255,255,0.2)'
     ctx.lineWidth = 2
     for (let i = 0; i < 5; i++) {
@@ -50,9 +54,7 @@ export function FishCatch({ onNeedQuestion, questionInterval = 6 }) {
       ctx.stroke()
     }
 
-    // Draw fish
-    const { fish } = stateRef.current
-    fish.forEach(f => {
+    stateRef.current.fish.forEach(f => {
       if (f.caught) return
       ctx.save()
       ctx.translate(f.x, f.y)
@@ -64,20 +66,25 @@ export function FishCatch({ onNeedQuestion, questionInterval = 6 }) {
       ctx.restore()
     })
 
-    // Score
     ctx.fillStyle = 'white'
     ctx.font = 'bold 22px system-ui'
     ctx.fillText(`🎣 ${stateRef.current.score}`, 16, 34)
-  }, [])
+
+    const label = difficulty === 'easy' ? '🐢' : difficulty === 'hard' ? '🚀' : '🐇'
+    ctx.fillStyle = 'rgba(255,255,255,0.5)'
+    ctx.font = '14px system-ui'
+    ctx.fillText(label, canvas.width - 30, 28)
+  }, [difficulty])
 
   const loop = useCallback(() => {
     if (pausedRef.current) return
     const canvas = canvasRef.current
     if (!canvas) return
     const s = stateRef.current
+    const diff = diffRef.current
 
-    if (Math.random() < 0.018) {
-      s.fish.push(makeFish(s.nextId++, canvas.width, canvas.height))
+    if (Math.random() < diff.spawnRate) {
+      s.fish.push(makeFish(s.nextId++, canvas.width, canvas.height, diff))
     }
 
     s.fish = s.fish.filter(f => f.x > -100 && f.x < canvas.width + 100 && !f.caught)
@@ -88,6 +95,7 @@ export function FishCatch({ onNeedQuestion, questionInterval = 6 }) {
   }, [draw])
 
   useEffect(() => {
+    diffRef.current = DIFF_CONFIG[difficulty] ?? DIFF_CONFIG.medium
     const canvas = canvasRef.current
     if (!canvas) return
     const resize = () => {
@@ -101,7 +109,7 @@ export function FishCatch({ onNeedQuestion, questionInterval = 6 }) {
       window.removeEventListener('resize', resize)
       cancelAnimationFrame(stateRef.current.frameId)
     }
-  }, [loop])
+  }, [loop, difficulty])
 
   const handleClick = useCallback((e) => {
     if (pausedRef.current) return
@@ -121,18 +129,18 @@ export function FishCatch({ onNeedQuestion, questionInterval = 6 }) {
     })
     if (caught) {
       setScore(s.score)
-      if (s.totalCaught > 0 && s.totalCaught % questionInterval === 0) {
+      if (s.totalCaught > 0 && s.totalCaught % diffRef.current.questionEvery === 0) {
         pausedRef.current = true
         setPaused(true)
         cancelAnimationFrame(s.frameId)
-        onNeedQuestion(() => {
+        onNeedQuestion((result) => {
           pausedRef.current = false
           setPaused(false)
           s.frameId = requestAnimationFrame(loop)
         })
       }
     }
-  }, [loop, onNeedQuestion, questionInterval])
+  }, [loop, onNeedQuestion])
 
   return (
     <div className="relative w-full h-full select-none">

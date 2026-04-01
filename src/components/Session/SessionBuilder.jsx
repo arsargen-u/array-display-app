@@ -22,6 +22,8 @@ export function SessionBuilder({ program, onStartSession, onBack }) {
   const fileInputRef = useRef(null)
   const [pendingImageTarget, setPendingImageTarget] = useState(null)
   const [searchPickerTarget, setSearchPickerTarget] = useState(null)
+  const [promptType, setPromptType] = useState('none')      // 'none' | 'positional' | 'stimulus'
+  const [promptFading, setPromptFading] = useState('none')  // 'none' | 'fade3' | 'fade5' | 'fade10'
 
   const typeInfo = TYPE_LABELS[program.stimulusType] ?? { label: program.stimulusType, color: 'gray' }
 
@@ -73,7 +75,7 @@ export function SessionBuilder({ program, onStartSession, onBack }) {
           <h2 className="text-xl font-bold text-gray-900 mt-0.5">{program.name}</h2>
         </div>
         <button
-          onClick={() => canStart && onStartSession({ program, selectedTargets, arraySize, messyArray, images })}
+          onClick={() => canStart && onStartSession({ program, selectedTargets, arraySize, messyArray, images, promptConfig: { type: promptType, fading: promptFading } })}
           disabled={!canStart}
           className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-indigo-700 active:scale-95 transition-all"
         >
@@ -95,7 +97,7 @@ export function SessionBuilder({ program, onStartSession, onBack }) {
             <div>
               <label className="text-sm text-gray-600 block mb-1">Array size</label>
               <div className="flex items-center gap-2">
-                {Array.from({ length: program.arraySize.max - program.arraySize.min + 1 }, (_, i) => i + program.arraySize.min).map(n => (
+                {Array.from({ length: program.arraySize.max - 2 + 1 }, (_, i) => i + 2).map(n => (
                   <button
                     key={n}
                     onClick={() => setArraySize(n)}
@@ -124,6 +126,72 @@ export function SessionBuilder({ program, onStartSession, onBack }) {
               </button>
               <span className="text-xs text-gray-500">{messyArray ? 'On — cards shown at random angles' : 'Off — cards in a row'}</span>
             </div>
+          </div>
+        </div>
+
+        {/* Prompting */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <h3 className="font-semibold text-gray-800 mb-4">Prompting</h3>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm text-gray-600 block mb-2">Prompt type</label>
+              <div className="flex gap-2">
+                {[
+                  { value: 'none',       label: '🚫 None' },
+                  { value: 'positional', label: '↑ Positional' },
+                  { value: 'stimulus',   label: '✨ Stimulus' },
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => { setPromptType(opt.value); if (opt.value === 'none') setPromptFading('none') }}
+                    className={`flex-1 py-2 px-2 rounded-lg text-sm font-semibold transition-all text-center ${
+                      promptType === opt.value
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-gray-400 mt-1.5 min-h-[1rem]">
+                {promptType === 'positional' && 'Correct card appears slightly elevated as a spatial cue.'}
+                {promptType === 'stimulus' && 'Correct card has a colored glow border as a visual cue.'}
+                {promptType === 'none' && 'No prompt — independent responding.'}
+              </p>
+            </div>
+
+            {promptType !== 'none' && (
+              <div>
+                <label className="text-sm text-gray-600 block mb-2">Prompt fading</label>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { value: 'none',   label: 'No fade' },
+                    { value: 'fade3',  label: 'Fade after 3 ✓' },
+                    { value: 'fade5',  label: 'Fade after 5 ✓' },
+                    { value: 'fade10', label: 'Fade after 10 ✓' },
+                  ].map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setPromptFading(opt.value)}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                        promptFading === opt.value
+                          ? 'bg-indigo-600 text-white shadow-sm'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-400 mt-1.5">
+                  {promptFading === 'none' && 'Prompt stays on every trial.'}
+                  {promptFading === 'fade3' && 'Prompt automatically removed after 3 consecutive correct responses.'}
+                  {promptFading === 'fade5' && 'Prompt automatically removed after 5 consecutive correct responses.'}
+                  {promptFading === 'fade10' && 'Prompt automatically removed after 10 consecutive correct responses.'}
+                </p>
+              </div>
+            )}
           </div>
         </div>
 

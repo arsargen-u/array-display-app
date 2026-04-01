@@ -1,13 +1,15 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { ProgramLibrary } from './components/Library/ProgramLibrary'
 import { SessionBuilder } from './components/Session/SessionBuilder'
 import { QuestionInterrupt } from './components/Session/QuestionInterrupt'
 import { GameSelector } from './components/Games/GameSelector'
 import { BubblePop } from './components/Games/BubblePop'
 import { FishCatch } from './components/Games/FishCatch'
+import { MemoryGame } from './components/Games/MemoryGame'
+import { CandyTrail } from './components/Games/CandyTrail'
+import { ColoringGame } from './components/Games/ColoringGame'
 import { SettingsPanel } from './components/Settings/SettingsPanel'
 
-// App screens
 const SCREEN = {
   LIBRARY: 'library',
   SESSION_BUILDER: 'session_builder',
@@ -21,11 +23,20 @@ export default function App() {
   const [sessionConfig, setSessionConfig] = useState(null)
   const [selectedGame, setSelectedGame] = useState(null)
 
-  // Question interrupt state
   const [questionActive, setQuestionActive] = useState(false)
   const [resumeCallback, setResumeCallback] = useState(null)
   const [sessionResults, setSessionResults] = useState([])
   const [showSettings, setShowSettings] = useState(false)
+
+  // Consecutive correct answers (for prompt fading)
+  const consecutiveCorrects = useMemo(() => {
+    let count = 0
+    for (let i = sessionResults.length - 1; i >= 0; i--) {
+      if (sessionResults[i].correct) count++
+      else break
+    }
+    return count
+  }, [sessionResults])
 
   const handleSelectProgram = (program) => {
     setSelectedProgram(program)
@@ -43,17 +54,15 @@ export default function App() {
     setScreen(SCREEN.PLAYING)
   }
 
-  // Called by game when it's time for a question
   const handleNeedQuestion = useCallback((resumeFn) => {
     setResumeCallback(() => resumeFn)
     setQuestionActive(true)
   }, [])
 
-  // Called when therapist scores the question
   const handleQuestionComplete = (result) => {
     setSessionResults(prev => [...prev, result])
     setQuestionActive(false)
-    if (resumeCallback) resumeCallback()
+    if (resumeCallback) resumeCallback(result)   // pass result so games can react (e.g. Memory, Candy)
     setResumeCallback(null)
   }
 
@@ -64,6 +73,8 @@ export default function App() {
     setSelectedGame(null)
     setSessionResults([])
   }
+
+  const difficulty = selectedGame?.difficulty ?? 'medium'
 
   return (
     <div className="w-full h-full flex flex-col">
@@ -106,6 +117,8 @@ export default function App() {
             <span className="font-bold text-sm">{selectedGame?.emoji} {selectedGame?.name}</span>
             <span className="text-gray-400 text-xs">·</span>
             <span className="text-gray-300 text-xs">{sessionConfig?.program?.code} {sessionConfig?.program?.name}</span>
+            <span className="text-gray-400 text-xs">·</span>
+            <span className="text-gray-400 text-xs capitalize">{difficulty}</span>
           </div>
           <div className="flex items-center gap-4">
             <span className="text-xs text-gray-400">
@@ -149,16 +162,19 @@ export default function App() {
         {screen === SCREEN.PLAYING && sessionConfig && (
           <div className="absolute inset-0">
             {selectedGame?.id === 'bubbles' && (
-              <BubblePop
-                onNeedQuestion={handleNeedQuestion}
-                questionInterval={5}
-              />
+              <BubblePop onNeedQuestion={handleNeedQuestion} difficulty={difficulty} />
             )}
             {selectedGame?.id === 'fish' && (
-              <FishCatch
-                onNeedQuestion={handleNeedQuestion}
-                questionInterval={5}
-              />
+              <FishCatch onNeedQuestion={handleNeedQuestion} difficulty={difficulty} />
+            )}
+            {selectedGame?.id === 'memory' && (
+              <MemoryGame onNeedQuestion={handleNeedQuestion} difficulty={difficulty} />
+            )}
+            {selectedGame?.id === 'candyland' && (
+              <CandyTrail onNeedQuestion={handleNeedQuestion} difficulty={difficulty} />
+            )}
+            {selectedGame?.id === 'coloring' && (
+              <ColoringGame onNeedQuestion={handleNeedQuestion} difficulty={difficulty} />
             )}
           </div>
         )}
@@ -172,6 +188,8 @@ export default function App() {
           arraySize={sessionConfig.arraySize}
           messyArray={sessionConfig.messyArray}
           images={sessionConfig.images}
+          promptConfig={sessionConfig.promptConfig}
+          consecutiveCorrects={consecutiveCorrects}
           onComplete={handleQuestionComplete}
         />
       )}

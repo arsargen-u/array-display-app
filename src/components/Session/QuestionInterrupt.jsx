@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { STIMULUS_TYPE } from '../../data/directPrograms'
 
 function shuffle(arr) {
@@ -11,7 +11,7 @@ function shuffle(arr) {
 }
 
 function randomAngle() {
-  return (Math.random() - 0.5) * 18 // -9 to +9 degrees
+  return (Math.random() - 0.5) * 18
 }
 
 function randomOffset() {
@@ -21,20 +21,26 @@ function randomOffset() {
   }
 }
 
-export function QuestionInterrupt({ program, selectedTargets, arraySize, messyArray, images, onComplete }) {
-  // Pick the target for this trial
+export function QuestionInterrupt({
+  program,
+  selectedTargets,
+  arraySize,
+  messyArray,
+  images,
+  onComplete,
+  promptConfig,
+  consecutiveCorrects = 0,
+}) {
   const target = useMemo(() => {
     return selectedTargets[Math.floor(Math.random() * selectedTargets.length)]
   }, [])
 
-  // Build the array: target + distractors, shuffled
   const arrayItems = useMemo(() => {
     const distractors = shuffle(selectedTargets.filter(s => s !== target))
       .slice(0, arraySize - 1)
     return shuffle([target, ...distractors])
   }, [target, selectedTargets, arraySize])
 
-  // Random positioning for messy array
   const positions = useMemo(() => {
     return arrayItems.map(() => ({
       angle: messyArray ? randomAngle() : 0,
@@ -42,8 +48,17 @@ export function QuestionInterrupt({ program, selectedTargets, arraySize, messyAr
     }))
   }, [arrayItems, messyArray])
 
+  // Compute the effective prompt level (may fade with consecutive corrects)
+  const effectivePrompt = useMemo(() => {
+    if (!promptConfig || promptConfig.type === 'none') return 'none'
+    const thresholds = { fade3: 3, fade5: 5, fade10: 10 }
+    const threshold = thresholds[promptConfig.fading]
+    if (threshold !== undefined && consecutiveCorrects >= threshold) return 'none'
+    return promptConfig.type
+  }, [promptConfig, consecutiveCorrects])
+
   const [selected, setSelected] = useState(null)
-  const [phase, setPhase] = useState('learner') // 'learner' | 'therapist'
+  const [phase, setPhase] = useState('learner')
 
   const isReceptive = program.stimulusType === STIMULUS_TYPE.RECEPTIVE ||
                       program.stimulusType === STIMULUS_TYPE.MATCH ||
@@ -56,13 +71,12 @@ export function QuestionInterrupt({ program, selectedTargets, arraySize, messyAr
   }
 
   const handleTherapistScore = (correct) => {
-    const score = correct ? 10 : 0
-    onComplete({ target, selected, correct, score })
+    onComplete({ target, selected, correct, score: correct ? 10 : 0 })
   }
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-white overflow-hidden">
-      {/* Top bar with SD */}
+      {/* Top bar */}
       <div className="bg-indigo-600 text-white px-6 py-3 flex items-center justify-between shadow-lg flex-shrink-0">
         <div>
           <p className="text-xs text-indigo-200 font-medium uppercase tracking-wide">{program.code} · {program.name}</p>
@@ -72,21 +86,34 @@ export function QuestionInterrupt({ program, selectedTargets, arraySize, messyAr
               : program.sd}
           </p>
         </div>
-        {phase === 'learner' && (
-          <div className="text-right">
-            <p className="text-xs text-indigo-200">Learner's turn</p>
-            <p className="text-sm font-medium">Tap the correct picture</p>
-          </div>
-        )}
-        {phase === 'therapist' && (
-          <div className="text-right">
-            <p className="text-xs text-indigo-200">Therapist's turn</p>
-            <p className="text-sm font-medium">Was the response correct?</p>
-          </div>
-        )}
+        <div className="text-right">
+          {phase === 'learner' ? (
+            <>
+              <p className="text-xs text-indigo-200">Learner's turn</p>
+              <p className="text-sm font-medium">Tap the correct picture</p>
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-indigo-200">Therapist's turn</p>
+              <p className="text-sm font-medium">Was the response correct?</p>
+            </>
+          )}
+        </div>
       </div>
 
-      {/* Tact: show single picture prominently */}
+      {/* Prompt indicator (therapist only) */}
+      {effectivePrompt !== 'none' && phase === 'learner' && (
+        <div className="bg-amber-50 border-b border-amber-200 px-6 py-1.5 flex items-center gap-2 flex-shrink-0">
+          <span className="text-amber-600 text-xs font-semibold">
+            {effectivePrompt === 'positional' ? '↑ Positional prompt active' : '✨ Stimulus prompt active'}
+            {promptConfig?.fading !== 'none' && ` · fades after ${
+              promptConfig.fading === 'fade3' ? '3' : promptConfig.fading === 'fade5' ? '5' : '10'
+            } corrects (${consecutiveCorrects} so far)`}
+          </span>
+        </div>
+      )}
+
+      {/* Tact: single picture */}
       {program.stimulusType === STIMULUS_TYPE.TACT && (
         <div className="flex flex-col items-center justify-center flex-1 gap-4 px-8">
           <div className="w-64 h-64 rounded-2xl overflow-hidden border-4 border-indigo-200 shadow-xl bg-gray-100 flex items-center justify-center">
@@ -103,24 +130,33 @@ export function QuestionInterrupt({ program, selectedTargets, arraySize, messyAr
       {/* Receptive / Match / Discrimination: picture array */}
       {program.stimulusType !== STIMULUS_TYPE.TACT && (
         <div className="flex-1 min-h-0 flex items-center justify-center px-4 py-2 overflow-auto">
-          <div className={`flex flex-wrap items-center justify-center gap-4 ${messyArray ? 'relative' : ''}`}>
+          <div className={`flex flex-wrap items-end justify-center gap-4 ${messyArray ? 'relative' : ''}`}>
             {arrayItems.map((item, idx) => {
               const pos = positions[idx]
               const isSelected = selected === item
+              const isTarget = item === target
+              const showPositional = isTarget && effectivePrompt === 'positional' && phase === 'learner'
+              const showStimulus = isTarget && effectivePrompt === 'stimulus' && phase === 'learner'
+
               return (
                 <button
                   key={idx}
                   onClick={() => handleLearnerSelect(item)}
                   disabled={phase === 'therapist'}
                   style={{
-                    transform: `rotate(${pos.angle}deg) translate(${pos.offset.x}px, ${pos.offset.y}px)`,
-                    transition: 'transform 0.1s ease',
+                    transform: `rotate(${pos.angle}deg) translate(${pos.offset.x}px, ${
+                      pos.offset.y + (showPositional ? -16 : 0)
+                    }px) ${showPositional ? 'scale(1.06)' : ''}`,
+                    transition: 'transform 0.25s ease',
+                    zIndex: showPositional ? 10 : 'auto',
                   }}
                   className={`
                     relative flex flex-col items-center gap-2 rounded-2xl p-2 border-4 transition-all duration-150
                     ${isSelected
                       ? 'border-indigo-500 shadow-xl scale-105 bg-indigo-50'
-                      : 'border-gray-200 bg-white hover:border-indigo-300 hover:shadow-md active:scale-95'}
+                      : showStimulus
+                        ? 'border-amber-400 shadow-lg bg-amber-50 ring-4 ring-amber-300 ring-offset-2'
+                        : 'border-gray-200 bg-white hover:border-indigo-300 hover:shadow-md active:scale-95'}
                     ${phase === 'therapist' && !isSelected ? 'opacity-50' : ''}
                   `}
                 >
@@ -132,9 +168,10 @@ export function QuestionInterrupt({ program, selectedTargets, arraySize, messyAr
                     )}
                   </div>
                   {isSelected && (
-                    <div className="absolute -top-2 -right-2 w-6 h-6 bg-indigo-600 rounded-full flex items-center justify-center text-white text-xs">
-                      ✓
-                    </div>
+                    <div className="absolute -top-2 -right-2 w-6 h-6 bg-indigo-600 rounded-full flex items-center justify-center text-white text-xs">✓</div>
+                  )}
+                  {showPositional && !isSelected && (
+                    <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-5 h-5 bg-amber-400 rounded-full flex items-center justify-center text-white text-xs shadow">↑</div>
                   )}
                 </button>
               )
@@ -143,7 +180,7 @@ export function QuestionInterrupt({ program, selectedTargets, arraySize, messyAr
         </div>
       )}
 
-      {/* Therapist scoring overlay */}
+      {/* Therapist scoring bar */}
       {phase === 'therapist' && (
         <div className="border-t border-gray-200 bg-gray-50 px-8 py-3 flex-shrink-0">
           <div className="flex items-center justify-between">
@@ -153,7 +190,7 @@ export function QuestionInterrupt({ program, selectedTargets, arraySize, messyAr
               {selected && (
                 <>
                   {' · '}
-                  <span className="font-medium">Learner selected:</span>{' '}
+                  <span className="font-medium">Selected:</span>{' '}
                   <span className="font-semibold">{selected}</span>
                 </>
               )}
@@ -176,7 +213,7 @@ export function QuestionInterrupt({ program, selectedTargets, arraySize, messyAr
         </div>
       )}
 
-      {/* Learner prompt footer */}
+      {/* Learner footer */}
       {phase === 'learner' && (
         <div className="border-t border-gray-100 px-8 py-2 bg-gray-50 text-center flex-shrink-0">
           <p className="text-sm text-gray-400">
