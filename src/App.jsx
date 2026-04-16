@@ -9,12 +9,14 @@ import { MemoryGame } from './components/Games/MemoryGame'
 import { CandyTrail } from './components/Games/CandyTrail'
 import { ColoringGame } from './components/Games/ColoringGame'
 import { SettingsPanel } from './components/Settings/SettingsPanel'
+import { LibraryManager } from './components/Library/LibraryManager'
 
 const SCREEN = {
   LIBRARY: 'library',
   SESSION_BUILDER: 'session_builder',
   GAME_SELECT: 'game_select',
   PLAYING: 'playing',
+  IMAGE_LIBRARY: 'image_library',
 }
 
 export default function App() {
@@ -87,7 +89,13 @@ export default function App() {
               active={screen === SCREEN.LIBRARY || screen === SCREEN.SESSION_BUILDER}
               onClick={() => setScreen(SCREEN.LIBRARY)}
             >
-              📚 Library
+              📚 Programs
+            </NavTab>
+            <NavTab
+              active={screen === SCREEN.IMAGE_LIBRARY}
+              onClick={() => setScreen(SCREEN.IMAGE_LIBRARY)}
+            >
+              🖼 Images
             </NavTab>
           </div>
           <div className="ml-auto flex items-center gap-3">
@@ -150,6 +158,12 @@ export default function App() {
               onStartSession={handleStartSession}
               onBack={() => setScreen(SCREEN.LIBRARY)}
             />
+          </div>
+        )}
+
+        {screen === SCREEN.IMAGE_LIBRARY && (
+          <div className="absolute inset-0">
+            <LibraryManager />
           </div>
         )}
 

@@ -2,7 +2,7 @@ import { useState, useRef } from 'react'
 import { STIMULUS_TYPE } from '../../data/directPrograms'
 import { saveImage, getProgramImages } from '../../store/db'
 import { Badge } from '../UI/Badge'
-import { ImageSearchPicker } from '../Library/ImageSearchPicker'
+import { ImagePicker } from '../Library/ImagePicker'
 
 const TYPE_LABELS = {
   [STIMULUS_TYPE.RECEPTIVE]: { label: 'Receptive', color: 'blue' },
@@ -21,7 +21,8 @@ export function SessionBuilder({ program, onStartSession, onBack }) {
   const [customTarget, setCustomTarget] = useState('')
   const fileInputRef = useRef(null)
   const [pendingImageTarget, setPendingImageTarget] = useState(null)
-  const [searchPickerTarget, setSearchPickerTarget] = useState(null)
+  const [pickerTarget, setPickerTarget] = useState(null)
+  const [pickerDefaultTab, setPickerDefaultTab] = useState('library')
   const [promptType, setPromptType] = useState('none')      // 'none' | 'positional' | 'stimulus'
   const [promptFading, setPromptFading] = useState('none')  // 'none' | 'fade3' | 'fade5' | 'fade10'
 
@@ -260,23 +261,37 @@ export function SessionBuilder({ program, onStartSession, onBack }) {
                 </div>
                 <span className="text-xs text-gray-600 font-medium text-center truncate w-full">{target}</span>
                 {/* Action buttons */}
-                <div className="flex gap-1.5 w-full">
+                <div className="flex gap-1 w-full">
                   <button
-                    onClick={() => setSearchPickerTarget(target)}
-                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold transition-colors"
+                    onClick={() => { setPickerTarget(target); setPickerDefaultTab('library') }}
+                    className="flex-1 flex items-center justify-center px-1.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold transition-colors"
+                    title="Pick from library"
+                  >
+                    📚
+                  </button>
+                  <button
+                    onClick={() => { setPickerTarget(target); setPickerDefaultTab('unsplash') }}
+                    className="flex-1 flex items-center justify-center px-1.5 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-lg text-xs font-semibold transition-colors"
                     title="Search Unsplash"
                   >
-                    🔍 Search
+                    🔍
+                  </button>
+                  <button
+                    onClick={() => { setPickerTarget(target); setPickerDefaultTab('google') }}
+                    className="flex-1 flex items-center justify-center px-1.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold transition-colors"
+                    title="Search Google Images"
+                  >
+                    🌐
                   </button>
                   <button
                     onClick={() => {
                       setPendingImageTarget(target)
                       fileInputRef.current.click()
                     }}
-                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-semibold transition-colors"
+                    className="flex-1 flex items-center justify-center px-1.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-semibold transition-colors"
                     title="Upload from device"
                   >
-                    ↑ Upload
+                    ↑
                   </button>
                 </div>
               </div>
@@ -295,16 +310,17 @@ export function SessionBuilder({ program, onStartSession, onBack }) {
           />
         </div>
 
-        {/* Image search picker modal */}
-        {searchPickerTarget && (
-          <ImageSearchPicker
-            targetName={searchPickerTarget}
+        {/* Image picker modal (Library / Unsplash / Google) */}
+        {pickerTarget && (
+          <ImagePicker
+            targetName={pickerTarget}
+            defaultTab={pickerDefaultTab}
             onSelect={async (dataUrl) => {
-              setImages(prev => ({ ...prev, [searchPickerTarget]: dataUrl }))
-              await saveImage(program.id, searchPickerTarget, dataUrl, 'unsplash')
-              setSearchPickerTarget(null)
+              setImages(prev => ({ ...prev, [pickerTarget]: dataUrl }))
+              await saveImage(program.id, pickerTarget, dataUrl, pickerDefaultTab)
+              setPickerTarget(null)
             }}
-            onClose={() => setSearchPickerTarget(null)}
+            onClose={() => setPickerTarget(null)}
           />
         )}
 
