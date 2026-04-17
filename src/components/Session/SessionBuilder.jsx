@@ -12,10 +12,17 @@ const TYPE_LABELS = {
 }
 
 export function SessionBuilder({ program, onStartSession, onBack }) {
+  const hasGroups = Boolean(program.stimulusGroups?.length)
+
   const [arraySize, setArraySize] = useState(program.arraySize.default)
   const [messyArray, setMessyArray] = useState(false)
+  // For grouped programs (doesn't belong / sort): track selected group ids
+  const [selectedGroupIds, setSelectedGroupIds] = useState(
+    hasGroups ? program.stimulusGroups.map(g => g.id) : []
+  )
+  // For non-grouped programs: flat list of selected targets
   const [selectedTargets, setSelectedTargets] = useState(
-    program.typicalStimuli.slice(0, program.arraySize.default)
+    hasGroups ? [] : program.typicalStimuli.slice(0, program.arraySize.default)
   )
   const [images, setImages] = useState({}) // targetName -> dataUrl
   const [customTarget, setCustomTarget] = useState('')
@@ -56,7 +63,27 @@ export function SessionBuilder({ program, onStartSession, onBack }) {
     reader.readAsDataURL(file)
   }
 
-  const canStart = selectedTargets.length >= 2
+  // Derived: all individual items that will be used (for image manager)
+  const activeItems = hasGroups
+    ? [...new Set(
+        program.stimulusGroups
+          .filter(g => selectedGroupIds.includes(g.id))
+          .flatMap(g => [...g.items, g.outlier])
+      )]
+    : selectedTargets
+
+  // Derived: trial sets for the session config
+  const trialSets = hasGroups
+    ? program.stimulusGroups.filter(g => selectedGroupIds.includes(g.id))
+    : null
+
+  const canStart = hasGroups ? selectedGroupIds.length >= 1 : selectedTargets.length >= 2
+
+  const toggleGroup = (groupId) => {
+    setSelectedGroupIds(prev =>
+      prev.includes(groupId) ? prev.filter(id => id !== groupId) : [...prev, groupId]
+    )
+  }
 
   return (
     <div className="flex flex-col h-full bg-gray-50">
@@ -76,7 +103,15 @@ export function SessionBuilder({ program, onStartSession, onBack }) {
           <h2 className="text-xl font-bold text-gray-900 mt-0.5">{program.name}</h2>
         </div>
         <button
-          onClick={() => canStart && onStartSession({ program, selectedTargets, arraySize, messyArray, images, promptConfig: { type: promptType, fading: promptFading } })}
+          onClick={() => canStart && onStartSession({
+            program,
+            selectedTargets: activeItems,
+            arraySize,
+            messyArray,
+            images,
+            promptConfig: { type: promptType, fading: promptFading },
+            trialSets,
+          })}
           disabled={!canStart}
           className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-indigo-700 active:scale-95 transition-all"
         >
@@ -196,50 +231,91 @@ export function SessionBuilder({ program, onStartSession, onBack }) {
           </div>
         </div>
 
-        {/* Target stimuli */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-gray-800">Target Stimuli</h3>
-            <span className="text-sm text-gray-500">{selectedTargets.length} selected</span>
+        {/* Target stimuli — grouped programs (doesn't belong / sort) */}
+        {hasGroups && (
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-gray-800">Trial Sets</h3>
+              <span className="text-sm text-gray-500">{selectedGroupIds.length} selected</span>
+            </div>
+            <p className="text-xs text-gray-400 mb-4">Each set shows 2 similar items + 1 that doesn't belong. Select which sets to use in this session.</p>
+            <div className="space-y-3">
+              {program.stimulusGroups.map(group => {
+                const isSelected = selectedGroupIds.includes(group.id)
+                return (
+                  <button
+                    key={group.id}
+                    onClick={() => toggleGroup(group.id)}
+                    className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-all ${
+                      isSelected
+                        ? 'border-indigo-500 bg-indigo-50'
+                        : 'border-gray-200 bg-gray-50 hover:border-indigo-300'
+                    }`}
+                  >
+                    <div className={`w-5 h-5 rounded flex-shrink-0 flex items-center justify-center border-2 text-xs font-bold ${
+                      isSelected ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-300'
+                    }`}>
+                      {isSelected ? '✓' : ''}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-800">{group.label}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        <span className="text-gray-600">{group.items.join(', ')}</span>
+                        <span className="text-gray-400"> + </span>
+                        <span className="text-red-500 font-medium">{group.outlier} (outlier)</span>
+                      </p>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
           </div>
+        )}
 
-          <div className="flex flex-wrap gap-2 mb-4">
-            {program.typicalStimuli.map(stimulus => {
-              const selected = selectedTargets.includes(stimulus)
-              return (
-                <button
-                  key={stimulus}
-                  onClick={() => toggleTarget(stimulus)}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                    selected
-                      ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  {stimulus}
-                </button>
-              )
-            })}
-          </div>
+        {/* Target stimuli — standard programs */}
+        {!hasGroups && (
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold text-gray-800">Target Stimuli</h3>
+              <span className="text-sm text-gray-500">{selectedTargets.length} selected</span>
+            </div>
 
-          {/* Add custom target */}
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="Add custom target…"
-              value={customTarget}
-              onChange={e => setCustomTarget(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && addCustomTarget()}
-              className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-            />
-            <button
-              onClick={addCustomTarget}
-              className="px-4 py-1.5 bg-gray-800 text-white rounded-lg text-sm font-medium hover:bg-gray-700"
-            >
-              Add
-            </button>
+            <div className="flex flex-wrap gap-2 mb-4">
+              {program.typicalStimuli.map(stimulus => {
+                const sel = selectedTargets.includes(stimulus)
+                return (
+                  <button
+                    key={stimulus}
+                    onClick={() => toggleTarget(stimulus)}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                      sel ? 'bg-indigo-600 text-white shadow-sm' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    {stimulus}
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Add custom target */}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Add custom target…"
+                value={customTarget}
+                onChange={e => setCustomTarget(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && addCustomTarget()}
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              />
+              <button
+                onClick={addCustomTarget}
+                className="px-4 py-1.5 bg-gray-800 text-white rounded-lg text-sm font-medium hover:bg-gray-700"
+              >
+                Add
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Image manager */}
         <div className="bg-white rounded-xl border border-gray-200 p-5">
@@ -247,7 +323,7 @@ export function SessionBuilder({ program, onStartSession, onBack }) {
           <p className="text-xs text-gray-500 mb-4">Add images by searching Unsplash or uploading from your device. Targets without images show a placeholder during the session.</p>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            {selectedTargets.map(target => (
+            {activeItems.map(target => (
               <div key={target} className="flex flex-col items-center gap-2">
                 {/* Image preview / tap area */}
                 <div

@@ -204,7 +204,13 @@ export default function App() {
           images={sessionConfig.images}
           promptConfig={sessionConfig.promptConfig}
           consecutiveCorrects={consecutiveCorrects}
+          trialSets={sessionConfig.trialSets}
           onComplete={handleQuestionComplete}
+          onSkip={() => {
+            setQuestionActive(false)
+            if (resumeCallback) resumeCallback({ skipped: true })
+            setResumeCallback(null)
+          }}
         />
       )}
 
