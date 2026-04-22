@@ -9,7 +9,7 @@ export default defineConfig({
   preview: {
     host: '0.0.0.0',
     port: process.env.PORT ? parseInt(process.env.PORT) : 4173,
-    allowedHosts: ['peak-curriculum.onrender.com'],
+    allowedHosts: ['array-display-app.onrender.com', 'peak-curriculum.onrender.com'],
   },
   plugins: [
     react(),
@@ -17,9 +17,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
       manifest: {
-        name: 'PEAK Curriculum App',
-        short_name: 'PEAK App',
-        description: 'PEAK-based educational game and DTT tool for therapists',
+        name: 'Tact + Array',
+        short_name: 'Tact+Array',
+        description: 'Game-based tact and array drill tool for ABA therapy',
         theme_color: '#6366f1',
         background_color: '#ffffff',
         display: 'standalone',
