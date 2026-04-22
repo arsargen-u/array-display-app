@@ -18,6 +18,16 @@ db.version(2).stores({
   libraryImages: '++id, label, category, createdAt',
 })
 
+// v3: variant exemplar images per program+target
+db.version(3).stores({
+  images: '++id, programId, targetName, imageUrl, imageData, source',
+  learners: '++id, name, createdAt',
+  sessions: '++id, learnerId, programId, date, score, trials',
+  activeProgramTargets: '++id, learnerId, programId, targets, arraySize, messyArray',
+  libraryImages: '++id, label, category, createdAt',
+  programVariants: '++id, programId, targetName',
+})
+
 // --- Program stimulus images ---
 
 export async function saveImage(programId, targetName, imageData, source = 'upload') {
@@ -30,6 +40,46 @@ export async function saveImage(programId, targetName, imageData, source = 'uplo
 
 export async function getProgramImages(programId) {
   return db.images.where({ programId }).toArray()
+}
+
+// --- Variant exemplar images ---
+
+export async function saveVariant(programId, targetName, imageData) {
+  return db.programVariants.add({ programId, targetName, imageData, createdAt: Date.now() })
+}
+
+/** Returns { [targetName]: [{ id, imageData }, …] } for a program */
+export async function getProgramVariants(programId) {
+  const rows = await db.programVariants.where({ programId }).toArray()
+  const map = {}
+  for (const row of rows) {
+    if (!map[row.targetName]) map[row.targetName] = []
+    map[row.targetName].push({ id: row.id, imageData: row.imageData })
+  }
+  return map
+}
+
+export async function deleteVariant(id) {
+  return db.programVariants.delete(id)
+}
+
+export async function clearTargetVariants(programId, targetName) {
+  return db.programVariants.where({ programId, targetName }).delete()
+}
+
+// --- Program config (non-image settings) saved in localStorage ---
+
+const configKey = (programId) => `peak_config_${programId}`
+
+export function saveProgramConfig(programId, config) {
+  try { localStorage.setItem(configKey(programId), JSON.stringify(config)) } catch (_) {}
+}
+
+export function loadProgramConfig(programId) {
+  try {
+    const raw = localStorage.getItem(configKey(programId))
+    return raw ? JSON.parse(raw) : null
+  } catch (_) { return null }
 }
 
 // --- Session logging ---

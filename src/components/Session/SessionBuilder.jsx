@@ -1,45 +1,133 @@
-import { useState, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { STIMULUS_TYPE } from '../../data/directPrograms'
-import { saveImage, getProgramImages } from '../../store/db'
+import {
+  saveImage, getProgramImages,
+  saveVariant, getProgramVariants, clearTargetVariants, deleteVariant,
+  saveProgramConfig, loadProgramConfig,
+} from '../../store/db'
 import { Badge } from '../UI/Badge'
 import { ImagePicker } from '../Library/ImagePicker'
 
 const TYPE_LABELS = {
-  [STIMULUS_TYPE.RECEPTIVE]: { label: 'Receptive', color: 'blue' },
-  [STIMULUS_TYPE.TACT]: { label: 'Tact', color: 'green' },
-  [STIMULUS_TYPE.MATCH]: { label: 'Match', color: 'amber' },
-  [STIMULUS_TYPE.DISCRIMINATION]: { label: 'Discrimination', color: 'rose' },
+  [STIMULUS_TYPE.RECEPTIVE]:      { label: 'Receptive',      color: 'blue'  },
+  [STIMULUS_TYPE.TACT]:           { label: 'Tact',           color: 'green' },
+  [STIMULUS_TYPE.MATCH]:          { label: 'Match',          color: 'amber' },
+  [STIMULUS_TYPE.DISCRIMINATION]: { label: 'Discrimination', color: 'rose'  },
 }
 
 export function SessionBuilder({ program, onStartSession, onBack }) {
   const hasGroups = Boolean(program.stimulusGroups?.length)
 
-  const [arraySize, setArraySize] = useState(program.arraySize.default)
-  const [messyArray, setMessyArray] = useState(false)
-  // For grouped programs (doesn't belong / sort): track selected group ids
+  // ── Load saved config from localStorage synchronously (no flicker) ──────────
+  const savedConfig = (() => {
+    try { return loadProgramConfig(program.id) } catch (_) { return null }
+  })()
+
+  // ── State ─────────────────────────────────────────────────────────────────
+  const [arraySize, setArraySize] = useState(
+    savedConfig?.arraySize ?? program.arraySize.default
+  )
+  const [messyArray, setMessyArray] = useState(savedConfig?.messyArray ?? false)
+
   const [selectedGroupIds, setSelectedGroupIds] = useState(
-    hasGroups ? program.stimulusGroups.map(g => g.id) : []
+    savedConfig?.selectedGroupIds ??
+    (hasGroups ? program.stimulusGroups.map(g => g.id) : [])
   )
-  // For non-grouped programs: flat list of selected targets
+
   const [selectedTargets, setSelectedTargets] = useState(
-    hasGroups ? [] : program.typicalStimuli.slice(0, program.arraySize.default)
+    savedConfig?.selectedTargets ??
+    (hasGroups ? [] : program.typicalStimuli.slice(0, program.arraySize.default))
   )
-  const [images, setImages] = useState({}) // targetName -> dataUrl
-  const [customTarget, setCustomTarget] = useState('')
-  const fileInputRef = useRef(null)
+
+  // Custom targets the user typed in (not in program.typicalStimuli)
+  const [customTargets, setCustomTargets] = useState(
+    savedConfig?.customTargets ?? []
+  )
+
+  const [promptType,   setPromptType]   = useState(savedConfig?.promptType   ?? 'none')
+  const [promptFading, setPromptFading] = useState(savedConfig?.promptFading ?? 'none')
+  const [errorCorrection, setErrorCorrection] = useState(savedConfig?.errorCorrection ?? false)
+
+  // images & variants loaded async from IndexedDB
+  const [images, setImages]               = useState({}) // targetName → dataUrl
+  const [imageVariants, setImageVariants] = useState({}) // targetName → dataUrl[]
+  const [variantIds, setVariantIds]       = useState({}) // targetName → db-id[]
+  const [imagesLoaded, setImagesLoaded]   = useState(false)
+
+  // Picker / upload helpers
+  const fileInputRef   = useRef(null)
   const [pendingImageTarget, setPendingImageTarget] = useState(null)
-  const [pickerTarget, setPickerTarget] = useState(null)
-  const [pickerDefaultTab, setPickerDefaultTab] = useState('library')
-  const [promptType, setPromptType] = useState('none')      // 'none' | 'positional' | 'stimulus'
-  const [promptFading, setPromptFading] = useState('none')  // 'none' | 'fade3' | 'fade5' | 'fade10'
-  const [errorCorrection, setErrorCorrection] = useState(false)
-  // imageVariants: extra exemplar images per target { [targetName]: dataUrl[] }
-  const [imageVariants, setImageVariants] = useState({})
-  // pickerMode: 'primary' replaces main image; 'variant' appends to variants
-  const [pickerMode, setPickerMode] = useState('primary')
+  const [pickerTarget,       setPickerTarget]       = useState(null)
+  const [pickerDefaultTab,   setPickerDefaultTab]   = useState('library')
+  const [pickerMode,         setPickerMode]         = useState('primary') // 'primary' | 'variant'
+
+  // Custom target input
+  const [customTargetInput, setCustomTargetInput] = useState('')
 
   const typeInfo = TYPE_LABELS[program.stimulusType] ?? { label: program.stimulusType, color: 'gray' }
 
+  // ── Load images & variants from IndexedDB on mount ─────────────────────────
+  useEffect(() => {
+    async function loadImages() {
+      const [savedImgs, savedVariants] = await Promise.all([
+        getProgramImages(program.id),
+        getProgramVariants(program.id),
+      ])
+
+      const imgMap = {}
+      for (const img of savedImgs) {
+        imgMap[img.targetName] = img.imageData
+      }
+      setImages(imgMap)
+
+      const varMap = {}
+      const idMap  = {}
+      for (const [target, items] of Object.entries(savedVariants)) {
+        varMap[target] = items.map(v => v.imageData)
+        idMap[target]  = items.map(v => v.id)
+      }
+      setImageVariants(varMap)
+      setVariantIds(idMap)
+
+      setImagesLoaded(true)
+    }
+    loadImages()
+  }, [program.id])
+
+  // ── Auto-save config whenever anything non-image changes ───────────────────
+  const configSaveRef = useRef(false)
+  useEffect(() => {
+    // Skip the very first render (we just loaded)
+    if (!configSaveRef.current) { configSaveRef.current = true; return }
+    saveProgramConfig(program.id, {
+      selectedTargets,
+      customTargets,
+      selectedGroupIds,
+      arraySize,
+      messyArray,
+      promptType,
+      promptFading,
+      errorCorrection,
+    })
+  }, [selectedTargets, customTargets, selectedGroupIds, arraySize, messyArray,
+      promptType, promptFading, errorCorrection])
+
+  // ── Derived values ─────────────────────────────────────────────────────────
+  const activeItems = hasGroups
+    ? [...new Set(
+        program.stimulusGroups
+          .filter(g => selectedGroupIds.includes(g.id))
+          .flatMap(g => [...g.items, g.outlier])
+      )]
+    : selectedTargets
+
+  const trialSets = hasGroups
+    ? program.stimulusGroups.filter(g => selectedGroupIds.includes(g.id))
+    : null
+
+  const canStart = hasGroups ? selectedGroupIds.length >= 1 : selectedTargets.length >= 2
+
+  // ── Handlers ───────────────────────────────────────────────────────────────
   const toggleTarget = (stimulus) => {
     setSelectedTargets(prev =>
       prev.includes(stimulus)
@@ -48,12 +136,26 @@ export function SessionBuilder({ program, onStartSession, onBack }) {
     )
   }
 
+  const removeCustomTarget = (t) => {
+    setSelectedTargets(prev => prev.filter(s => s !== t))
+    setCustomTargets(prev => prev.filter(s => s !== t))
+  }
+
   const addCustomTarget = () => {
-    const t = customTarget.trim()
+    const t = customTargetInput.trim()
     if (t && !selectedTargets.includes(t)) {
       setSelectedTargets(prev => [...prev, t])
+      if (!program.typicalStimuli.includes(t)) {
+        setCustomTargets(prev => [...prev, t])
+      }
     }
-    setCustomTarget('')
+    setCustomTargetInput('')
+  }
+
+  const toggleGroup = (groupId) => {
+    setSelectedGroupIds(prev =>
+      prev.includes(groupId) ? prev.filter(id => id !== groupId) : [...prev, groupId]
+    )
   }
 
   const handleImageUpload = (targetName, e) => {
@@ -68,30 +170,28 @@ export function SessionBuilder({ program, onStartSession, onBack }) {
     reader.readAsDataURL(file)
   }
 
-  // Derived: all individual items that will be used (for image manager)
-  const activeItems = hasGroups
-    ? [...new Set(
-        program.stimulusGroups
-          .filter(g => selectedGroupIds.includes(g.id))
-          .flatMap(g => [...g.items, g.outlier])
-      )]
-    : selectedTargets
-
-  // Derived: trial sets for the session config
-  const trialSets = hasGroups
-    ? program.stimulusGroups.filter(g => selectedGroupIds.includes(g.id))
-    : null
-
-  const canStart = hasGroups ? selectedGroupIds.length >= 1 : selectedTargets.length >= 2
-
-  const toggleGroup = (groupId) => {
-    setSelectedGroupIds(prev =>
-      prev.includes(groupId) ? prev.filter(id => id !== groupId) : [...prev, groupId]
-    )
+  const handlePickerSelect = async (dataUrl) => {
+    if (pickerMode === 'variant') {
+      const newId = await saveVariant(program.id, pickerTarget, dataUrl)
+      setImageVariants(prev => ({ ...prev, [pickerTarget]: [...(prev[pickerTarget] ?? []), dataUrl] }))
+      setVariantIds(prev => ({ ...prev, [pickerTarget]: [...(prev[pickerTarget] ?? []), newId] }))
+    } else {
+      setImages(prev => ({ ...prev, [pickerTarget]: dataUrl }))
+      await saveImage(program.id, pickerTarget, dataUrl, pickerDefaultTab)
+    }
+    setPickerTarget(null)
   }
 
+  const handleClearVariants = async (target) => {
+    await clearTargetVariants(program.id, target)
+    setImageVariants(prev => { const n = { ...prev }; delete n[target]; return n })
+    setVariantIds(prev => { const n = { ...prev }; delete n[target]; return n })
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col h-full bg-gray-50">
+
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center gap-4">
         <button
@@ -127,6 +227,7 @@ export function SessionBuilder({ program, onStartSession, onBack }) {
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+
         {/* Instructions */}
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
           <strong>SD:</strong> "{program.sd}"
@@ -199,8 +300,8 @@ export function SessionBuilder({ program, onStartSession, onBack }) {
               </div>
               <p className="text-xs text-gray-400 mt-1.5 min-h-[1rem]">
                 {promptType === 'positional' && 'Correct card appears slightly elevated as a spatial cue.'}
-                {promptType === 'stimulus' && 'Correct card has a colored glow border as a visual cue.'}
-                {promptType === 'none' && 'No prompt — independent responding.'}
+                {promptType === 'stimulus'   && 'Correct card has a colored glow border as a visual cue.'}
+                {promptType === 'none'       && 'No prompt — independent responding.'}
               </p>
             </div>
 
@@ -228,24 +329,24 @@ export function SessionBuilder({ program, onStartSession, onBack }) {
                   ))}
                 </div>
                 <p className="text-xs text-gray-400 mt-1.5">
-                  {promptFading === 'none' && 'Prompt stays on every trial.'}
-                  {promptFading === 'fade3' && 'Prompt automatically removed after 3 consecutive correct responses.'}
-                  {promptFading === 'fade5' && 'Prompt automatically removed after 5 consecutive correct responses.'}
-                  {promptFading === 'fade10' && 'Prompt automatically removed after 10 consecutive correct responses.'}
+                  {promptFading === 'none'   && 'Prompt stays on every trial.'}
+                  {promptFading === 'fade3'  && 'Prompt removed after 3 consecutive correct responses.'}
+                  {promptFading === 'fade5'  && 'Prompt removed after 5 consecutive correct responses.'}
+                  {promptFading === 'fade10' && 'Prompt removed after 10 consecutive correct responses.'}
                 </p>
               </div>
             )}
           </div>
         </div>
 
-        {/* Target stimuli — grouped programs (doesn't belong / sort) */}
+        {/* Target stimuli — grouped programs */}
         {hasGroups && (
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold text-gray-800">Trial Sets</h3>
               <span className="text-sm text-gray-500">{selectedGroupIds.length} selected</span>
             </div>
-            <p className="text-xs text-gray-400 mb-4">Each set shows 2 similar items + 1 that doesn't belong. Select which sets to use in this session.</p>
+            <p className="text-xs text-gray-400 mb-4">Each set shows 2 similar items + 1 that doesn't belong.</p>
             <div className="space-y-3">
               {program.stimulusGroups.map(group => {
                 const isSelected = selectedGroupIds.includes(group.id)
@@ -282,12 +383,16 @@ export function SessionBuilder({ program, onStartSession, onBack }) {
         {/* Target stimuli — standard programs */}
         {!hasGroups && (
           <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-1">
               <h3 className="font-semibold text-gray-800">Target Stimuli</h3>
-              <span className="text-sm text-gray-500">{selectedTargets.length} selected</span>
+              <span className="text-sm text-gray-500">{selectedTargets.length} selected · auto-saved</span>
             </div>
+            <p className="text-xs text-gray-400 mb-4">
+              Your selection is remembered next time you open this program.
+            </p>
 
-            <div className="flex flex-wrap gap-2 mb-4">
+            {/* Typical stimuli chips */}
+            <div className="flex flex-wrap gap-2 mb-3">
               {program.typicalStimuli.map(stimulus => {
                 const sel = selectedTargets.includes(stimulus)
                 return (
@@ -295,7 +400,9 @@ export function SessionBuilder({ program, onStartSession, onBack }) {
                     key={stimulus}
                     onClick={() => toggleTarget(stimulus)}
                     className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                      sel ? 'bg-indigo-600 text-white shadow-sm' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      sel
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                     }`}
                   >
                     {stimulus}
@@ -304,13 +411,42 @@ export function SessionBuilder({ program, onStartSession, onBack }) {
               })}
             </div>
 
+            {/* Custom target chips */}
+            {customTargets.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-3">
+                {customTargets.map(t => {
+                  const sel = selectedTargets.includes(t)
+                  return (
+                    <span key={t} className={`inline-flex items-center gap-1 pl-3 pr-1.5 py-1.5 rounded-lg text-sm font-medium border transition-all ${
+                      sel
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-gray-100 text-gray-700 border-gray-200'
+                    }`}>
+                      <button onClick={() => toggleTarget(t)} className="leading-none">
+                        {t}
+                      </button>
+                      <button
+                        onClick={() => removeCustomTarget(t)}
+                        className={`ml-0.5 rounded-full w-4 h-4 flex items-center justify-center text-xs leading-none hover:opacity-70 ${
+                          sel ? 'text-indigo-200 hover:text-white' : 'text-gray-400 hover:text-gray-600'
+                        }`}
+                        title="Remove"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  )
+                })}
+              </div>
+            )}
+
             {/* Add custom target */}
-            <div className="flex gap-2">
+            <div className="flex gap-2 mt-1">
               <input
                 type="text"
-                placeholder="Add custom target…"
-                value={customTarget}
-                onChange={e => setCustomTarget(e.target.value)}
+                placeholder="Add custom stimulus…"
+                value={customTargetInput}
+                onChange={e => setCustomTargetInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && addCustomTarget()}
                 className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
               />
@@ -324,18 +460,24 @@ export function SessionBuilder({ program, onStartSession, onBack }) {
           </div>
         )}
 
-        {/* Image manager — hidden for text-only programs like 10A */}
+        {/* Image manager — hidden for text-only programs */}
         {program.needsPictures !== false && (
           <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <h3 className="font-semibold text-gray-800 mb-1">Stimulus Images</h3>
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="font-semibold text-gray-800">Stimulus Images</h3>
+              {!imagesLoaded && (
+                <span className="text-xs text-gray-400 animate-pulse">Loading saved images…</span>
+              )}
+            </div>
             <p className="text-xs text-gray-500 mb-4">
-              Add a primary image per target. Use <strong>＋ Variant</strong> to add extra exemplars — the trial will randomly pick one each time.
+              Images are saved and restored automatically.
+              Use <strong>＋ Variant</strong> to add extra exemplars — picked randomly each trial.
             </p>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
               {activeItems.map(target => {
                 const variantCount = imageVariants[target]?.length ?? 0
-                const totalImgs = (images[target] ? 1 : 0) + variantCount
+                const totalImgs    = (images[target] ? 1 : 0) + variantCount
                 return (
                   <div key={target} className="flex flex-col items-center gap-2">
                     {/* Primary image preview */}
@@ -345,7 +487,6 @@ export function SessionBuilder({ program, onStartSession, onBack }) {
                       ) : (
                         <span className="text-4xl text-gray-200">🖼️</span>
                       )}
-                      {/* Variant count badge */}
                       {variantCount > 0 && (
                         <span className="absolute top-1.5 right-1.5 bg-indigo-600 text-white text-xs font-bold px-1.5 py-0.5 rounded-full leading-none">
                           +{variantCount}
@@ -363,10 +504,6 @@ export function SessionBuilder({ program, onStartSession, onBack }) {
                       <button onClick={() => { setPickerMode('primary'); setPickerTarget(target); setPickerDefaultTab('library') }}
                         className="flex-1 flex items-center justify-center px-1.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold transition-colors" title="Pick from library">
                         📚
-                      </button>
-                      <button onClick={() => { setPickerMode('primary'); setPickerTarget(target); setPickerDefaultTab('unsplash') }}
-                        className="flex-1 flex items-center justify-center px-1.5 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-lg text-xs font-semibold transition-colors" title="Search Unsplash">
-                        🔍
                       </button>
                       <button onClick={() => { setPickerMode('primary'); setPickerTarget(target); setPickerDefaultTab('pexels') }}
                         className="flex-1 flex items-center justify-center px-1.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg text-xs font-semibold transition-colors" title="Search Pexels">
@@ -386,18 +523,14 @@ export function SessionBuilder({ program, onStartSession, onBack }) {
                         className="flex-1 flex items-center justify-center px-1 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg text-xs font-semibold transition-colors" title="Add variant from library">
                         📚
                       </button>
-                      <button onClick={() => { setPickerMode('variant'); setPickerTarget(target); setPickerDefaultTab('unsplash') }}
-                        className="flex-1 flex items-center justify-center px-1 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg text-xs font-semibold transition-colors" title="Add variant from Unsplash">
-                        🔍
-                      </button>
                       <button onClick={() => { setPickerMode('variant'); setPickerTarget(target); setPickerDefaultTab('pexels') }}
                         className="flex-1 flex items-center justify-center px-1 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg text-xs font-semibold transition-colors" title="Add variant from Pexels">
                         🌿
                       </button>
                       {variantCount > 0 && (
                         <button
-                          onClick={() => setImageVariants(prev => { const n = { ...prev }; delete n[target]; return n })}
-                          className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-400 rounded-lg text-xs font-semibold transition-colors" title="Clear variants">
+                          onClick={() => handleClearVariants(target)}
+                          className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-400 rounded-lg text-xs font-semibold transition-colors" title="Clear all variants">
                           ✕
                         </button>
                       )}
@@ -420,25 +553,12 @@ export function SessionBuilder({ program, onStartSession, onBack }) {
           </div>
         )}
 
-        {/* Image picker modal (Library / Unsplash / Google) */}
+        {/* Image picker modal */}
         {pickerTarget && (
           <ImagePicker
             targetName={pickerTarget}
             defaultTab={pickerDefaultTab}
-            onSelect={async (dataUrl) => {
-              if (pickerMode === 'variant') {
-                // Append as extra exemplar
-                setImageVariants(prev => ({
-                  ...prev,
-                  [pickerTarget]: [...(prev[pickerTarget] ?? []), dataUrl],
-                }))
-              } else {
-                // Replace primary image
-                setImages(prev => ({ ...prev, [pickerTarget]: dataUrl }))
-                await saveImage(program.id, pickerTarget, dataUrl, pickerDefaultTab)
-              }
-              setPickerTarget(null)
-            }}
+            onSelect={handlePickerSelect}
             onClose={() => setPickerTarget(null)}
           />
         )}
@@ -466,7 +586,7 @@ export function SessionBuilder({ program, onStartSession, onBack }) {
             <div className="mt-3 bg-orange-50 border border-orange-200 rounded-lg p-3 text-xs text-orange-700 space-y-1">
               <p className="font-semibold">How it works:</p>
               <ol className="list-decimal list-inside space-y-0.5 text-orange-600">
-                <li>Therapist scores <strong>✗ Incorrect</strong> → same array is shown again with a positional prompt</li>
+                <li>Therapist scores <strong>✗ Incorrect</strong> → same array re-presents with positional prompt</li>
                 <li>Up to 2 correction attempts before moving on</li>
                 <li>Tap <strong>← Skip</strong> at any time to bypass error correction</li>
               </ol>
@@ -479,6 +599,7 @@ export function SessionBuilder({ program, onStartSession, onBack }) {
             Select at least 2 targets to start a session
           </p>
         )}
+
       </div>
     </div>
   )
