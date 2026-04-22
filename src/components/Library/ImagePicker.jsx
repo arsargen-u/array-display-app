@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getAllLibraryImages, searchLibraryImages } from '../../store/db'
 import { compressImage } from '../../utils/imageUtils'
+import { getUnsplashKey, getPexelsKey } from '../../config'
 
 // --- helpers ---
 async function urlToBase64(url) {
@@ -88,7 +89,7 @@ function UnsplashTab({ targetName, onSelect }) {
   const [error, setError] = useState(null)
 
   const search = async () => {
-    const apiKey = localStorage.getItem('unsplash_access_key')
+    const apiKey = getUnsplashKey()
     if (!apiKey) { setError('No Unsplash key set — add one in ⚙ Settings.'); return }
     if (!query.trim()) return
     setLoading(true); setError(null)
@@ -133,7 +134,7 @@ function UnsplashTab({ targetName, onSelect }) {
       <div className="flex-1 overflow-y-auto p-3">
         {results.length === 0 && !loading ? (
           <div className="text-center py-12 text-gray-400 text-sm">
-            {localStorage.getItem('unsplash_access_key') ? 'Search for photos above' : 'Add an Unsplash API key in ⚙ Settings'}
+            {getUnsplashKey() ? 'Search for photos above' : 'Add an Unsplash API key in ⚙ Settings'}
           </div>
         ) : (
           <div className="grid grid-cols-3 gap-2">
@@ -161,7 +162,7 @@ function PexelsTab({ targetName, onSelect }) {
   const [error, setError] = useState(null)
 
   const search = async () => {
-    const apiKey = localStorage.getItem('pexels_api_key')
+    const apiKey = getPexelsKey()
     if (!apiKey) { setError('No Pexels key set — add one in ⚙ Settings.'); return }
     if (!query.trim()) return
     setLoading(true); setError(null)
@@ -206,7 +207,7 @@ function PexelsTab({ targetName, onSelect }) {
       <div className="flex-1 overflow-y-auto p-3">
         {results.length === 0 && !loading ? (
           <div className="text-center py-12 text-gray-400 text-sm">
-            {localStorage.getItem('pexels_api_key') ? 'Search for photos above' : 'Add a Pexels API key in ⚙ Settings'}
+            {getPexelsKey() ? 'Search for photos above' : 'Add a Pexels API key in ⚙ Settings'}
           </div>
         ) : (
           <div className="grid grid-cols-3 gap-2">

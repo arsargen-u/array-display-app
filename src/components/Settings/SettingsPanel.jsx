@@ -1,24 +1,36 @@
 import { useState } from 'react'
+import { isUnsplashPreConfigured, isPexelsPreConfigured } from '../../config'
 
-function KeyField({ label, storageKey, placeholder, helpText, helpUrl, helpLinkLabel }) {
+function KeyField({ label, storageKey, placeholder, helpText, helpUrl, helpLinkLabel, isPreConfigured }) {
   const [value, setValue] = useState(localStorage.getItem(storageKey) ?? '')
   const [saved, setSaved] = useState(false)
 
   const handleSave = () => {
-    localStorage.setItem(storageKey, value.trim())
+    if (value.trim()) {
+      localStorage.setItem(storageKey, value.trim())
+    } else {
+      localStorage.removeItem(storageKey)
+    }
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
 
   return (
     <div>
-      <label className="block text-sm font-semibold text-gray-700 mb-1">{label}</label>
+      <div className="flex items-center justify-between mb-1">
+        <label className="text-sm font-semibold text-gray-700">{label}</label>
+        {isPreConfigured && (
+          <span className="text-xs font-semibold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
+            ✓ Pre-configured
+          </span>
+        )}
+      </div>
       <div className="flex gap-2">
         <input
           type="text"
           value={value}
           onChange={e => setValue(e.target.value)}
-          placeholder={placeholder}
+          placeholder={isPreConfigured ? 'Using clinic key — override here if needed' : placeholder}
           className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 font-mono"
         />
         <button
@@ -30,7 +42,11 @@ function KeyField({ label, storageKey, placeholder, helpText, helpUrl, helpLinkL
           {saved ? '✓' : 'Save'}
         </button>
       </div>
-      {helpText && (
+      {isPreConfigured ? (
+        <p className="text-xs text-green-600 mt-1.5">
+          A clinic-wide key is already active. Leave blank to keep using it, or paste your own to override.
+        </p>
+      ) : helpText && (
         <p className="text-xs text-gray-400 mt-1.5">
           {helpText}{' '}
           {helpUrl && (
@@ -64,6 +80,7 @@ export function SettingsPanel({ onClose }) {
               helpText="Free at"
               helpUrl="https://unsplash.com/developers"
               helpLinkLabel="unsplash.com/developers → New Application"
+              isPreConfigured={isUnsplashPreConfigured()}
             />
           </div>
 
@@ -79,15 +96,8 @@ export function SettingsPanel({ onClose }) {
               helpText="Free at"
               helpUrl="https://www.pexels.com/api/"
               helpLinkLabel="pexels.com/api → Get Started"
+              isPreConfigured={isPexelsPreConfigured()}
             />
-            <div className="mt-3 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2.5 text-xs text-emerald-700">
-              <p className="font-semibold mb-1">Pexels setup (2 steps):</p>
-              <ol className="list-decimal list-inside space-y-0.5 text-emerald-600">
-                <li>Sign up free at <a href="https://www.pexels.com/api/" target="_blank" rel="noopener noreferrer" className="underline">pexels.com/api</a> → click <strong>Get Started</strong></li>
-                <li>Copy your API key → paste above</li>
-              </ol>
-              <p className="text-emerald-500 mt-1.5">Free: 200 requests/hour, 20,000/month</p>
-            </div>
           </div>
         </div>
       </div>

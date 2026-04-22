@@ -5,6 +5,7 @@ import {
 } from '../../store/db'
 import { compressImage } from '../../utils/imageUtils'
 import { ImagePicker } from '../Library/ImagePicker'
+import { getUnsplashKey } from '../../config'
 
 async function urlToBase64(url) {
   const res = await fetch(url)
@@ -76,7 +77,7 @@ export function ProgramEditor({ program, onStartSession, onBack }) {
 
   // ── Debounced Unsplash suggestions ───────────────────────────────────────
   useEffect(() => {
-    const apiKey = localStorage.getItem('unsplash_access_key')
+    const apiKey = getUnsplashKey()
     if (!apiKey || targetInput.trim().length < 2) { setStimSuggestions([]); return }
     setStimSuggestionsLoading(true)
     const timer = setTimeout(async () => {

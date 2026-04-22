@@ -7,6 +7,23 @@ import {
 } from '../../store/db'
 import { compressImage } from '../../utils/imageUtils'
 
+async function exportLibrary(images, customFolders) {
+  const payload = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    customFolders,
+    images: images.map(({ id, ...rest }) => rest),
+  }
+  const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' })
+  const url  = URL.createObjectURL(blob)
+  const a    = Object.assign(document.createElement('a'), {
+    href: url,
+    download: `tact-array-library-${new Date().toISOString().slice(0, 10)}.json`,
+  })
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 // ── Default folders aligned to PEAK program content areas ──────────────────
 const DEFAULT_FOLDERS = [
   { id: 'animals',    label: '🐾 Animals' },
@@ -130,6 +147,8 @@ export function LibraryManager() {
   const [showUpload, setShowUpload] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
   const [showNewFolder, setShowNewFolder] = useState(false)
+  const [importStatus, setImportStatus] = useState(null) // null | 'importing' | { count: number }
+  const importInputRef = useRef(null)
 
   const reload = async () => {
     setLoading(true)
@@ -215,6 +234,54 @@ export function LibraryManager() {
     setEditFolder(img.category ?? '')
   }
 
+  const handleExport = async () => {
+    const all = await getAllLibraryImages()
+    const customFolders = folders.filter(f => !DEFAULT_FOLDERS.find(d => d.id === f.id))
+    await exportLibrary(all, customFolders)
+  }
+
+  const handleImportFile = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    e.target.value = ''
+    setImportStatus('importing')
+    try {
+      const text = await file.text()
+      const data = JSON.parse(text)
+      // Merge custom folders
+      const incoming = data.customFolders ?? []
+      if (incoming.length) {
+        const existingIds = folders.map(f => f.id)
+        const newFolders = incoming.filter(f => !existingIds.includes(f.id))
+        if (newFolders.length) {
+          const updated = [...folders, ...newFolders]
+          setFolders(updated)
+          saveCustomFolders(updated)
+        }
+      }
+      // Import images
+      const imgs = data.images ?? (Array.isArray(data) ? data : [])
+      let count = 0
+      for (const img of imgs) {
+        if (img.imageData) {
+          await addLibraryImage({
+            label: img.label ?? '',
+            category: img.category ?? null,
+            imageData: img.imageData,
+            source: img.source ?? 'import',
+          })
+          count++
+        }
+      }
+      setImportStatus({ count })
+      setTimeout(() => setImportStatus(null), 3000)
+      reload()
+    } catch (err) {
+      setImportStatus({ error: 'Import failed — make sure it\'s a valid library file.' })
+      setTimeout(() => setImportStatus(null), 4000)
+    }
+  }
+
   const isCustomFolder = (folderId) => !DEFAULT_FOLDERS.find(f => f.id === folderId)
 
   return (
@@ -291,21 +358,53 @@ export function LibraryManager() {
       {/* ── Main content ───────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Toolbar */}
-        <div className="bg-white border-b border-gray-200 px-5 py-3 flex gap-3 items-center flex-shrink-0">
+        <div className="bg-white border-b border-gray-200 px-5 py-3 flex gap-2 items-center flex-shrink-0 flex-wrap">
           <input
             type="text"
             value={query}
             onChange={e => setQuery(e.target.value)}
             placeholder="Search by label…"
-            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            className="flex-1 min-w-32 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
           />
           <button
             onClick={() => setShowUpload(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold transition-colors active:scale-95 flex-shrink-0"
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold transition-colors active:scale-95 flex-shrink-0"
           >
             ↑ Upload
           </button>
+          <button
+            onClick={handleExport}
+            disabled={images.length === 0}
+            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 disabled:opacity-40 text-gray-700 rounded-lg text-sm font-semibold transition-colors active:scale-95 flex-shrink-0"
+            title="Export library as a shareable file"
+          >
+            ↓ Export
+          </button>
+          <button
+            onClick={() => importInputRef.current.click()}
+            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-semibold transition-colors active:scale-95 flex-shrink-0"
+            title="Import a library file shared by a colleague"
+          >
+            {importStatus === 'importing' ? '…' : '⊕ Import'}
+          </button>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={handleImportFile}
+          />
         </div>
+        {/* Import status banner */}
+        {importStatus && importStatus !== 'importing' && (
+          <div className={`px-5 py-2 text-sm font-medium flex-shrink-0 ${
+            importStatus.error
+              ? 'bg-red-50 text-red-600'
+              : 'bg-green-50 text-green-700'
+          }`}>
+            {importStatus.error ?? `✓ Imported ${importStatus.count} image${importStatus.count !== 1 ? 's' : ''}`}
+          </div>
+        )}
 
         {/* Folder heading */}
         <div className="px-5 pt-4 pb-1 flex-shrink-0">
