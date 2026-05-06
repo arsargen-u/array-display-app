@@ -37,16 +37,23 @@ async function fetchWikiThumb(term) {
     }
   } catch {}
 
-  // 2. Search fallback (handles descriptive phrases like "human arm")
+  // 2. OpenSearch fallback — resolves near-misses and descriptive phrases
+  //    by finding the canonical article title, then fetching its summary.
   try {
     const r = await fetch(
-      `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrnamespace=0` +
-      `&gsrsearch=${encodeURIComponent(term)}&gsrlimit=1&prop=pageimages&pithumbsize=300` +
-      `&format=json&origin=*`
+      `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(term)}&limit=1&format=json&origin=*`
     );
-    const d = await r.json();
-    const pages = Object.values(d.query?.pages || {});
-    if (pages.length > 0 && pages[0].thumbnail?.source) return pages[0].thumbnail.source;
+    const [, titles] = await r.json();
+    const title = titles?.[0];
+    if (title) {
+      const r2 = await fetch(
+        `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`
+      );
+      if (r2.ok) {
+        const d = await r2.json();
+        if (d.thumbnail?.source) return d.thumbnail.source;
+      }
+    }
   } catch {}
 
   return null;
