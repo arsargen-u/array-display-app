@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { getAllLibraryImages, searchLibraryImages } from '../../store/db'
 import { compressImage } from '../../utils/imageUtils'
 import { getUnsplashKey, getPexelsKey } from '../../config'
+import PictureLibrary from './PictureLibrary'
 
 // --- helpers ---
 async function urlToBase64(url) {
@@ -231,9 +232,176 @@ function PexelsTab({ targetName, onSelect }) {
   )
 }
 
+// --- Built-in Picture Library helpers ---
+async function fetchWikiThumbUrl(term) {
+  try {
+    const r = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(term)}`)
+    if (r.ok) {
+      const d = await r.json()
+      if (d.thumbnail?.source) return d.thumbnail.source
+    }
+  } catch {}
+  try {
+    const r = await fetch(
+      `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrnamespace=0` +
+      `&gsrsearch=${encodeURIComponent(term)}&gsrlimit=1&prop=pageimages&pithumbsize=300` +
+      `&format=json&origin=*`
+    )
+    const d = await r.json()
+    const pages = Object.values(d.query?.pages || {})
+    if (pages.length > 0 && pages[0].thumbnail?.source) return pages[0].thumbnail.source
+  } catch {}
+  return null
+}
+
+function variantToSVGDataURL(variant) {
+  const size = 200, coral = '#D9674A', coralBg = '#FBF0ED', greenBg = '#EFF6EA'
+  const cx = size / 2, cy = size / 2, s = size
+
+  if (variant.type === 'shape') {
+    const color = variant.color
+    const poly = (n, r, off = -90) => Array.from({ length: n }, (_, i) => {
+      const a = (off + i * 360 / n) * Math.PI / 180
+      return `${cx + r * Math.cos(a)},${cy + r * Math.sin(a)}`
+    }).join(' ')
+    const star = () => Array.from({ length: 10 }, (_, i) => {
+      const r = i % 2 === 0 ? s * 0.42 : s * 0.18, a = (-90 + i * 36) * Math.PI / 180
+      return `${cx + r * Math.cos(a)},${cy + r * Math.sin(a)}`
+    }).join(' ')
+    const heart = `M${cx} ${s*.8} C${s*.2} ${s*.6},${s*.05} ${s*.45},${s*.05} ${s*.3} C${s*.05} ${s*.15},${s*.15} ${s*.08},${s*.28} ${s*.08} C${s*.36} ${s*.08},${s*.43} ${s*.12},${cx} ${s*.2} C${s*.57} ${s*.12},${s*.64} ${s*.08},${s*.72} ${s*.08} C${s*.85} ${s*.08},${s*.95} ${s*.15},${s*.95} ${s*.3} C${s*.95} ${s*.45},${s*.8} ${s*.6},${cx} ${s*.8} Z`
+    const inner = ({
+      circle:    `<circle cx="${cx}" cy="${cy}" r="${s*.41}" fill="${color}"/>`,
+      square:    `<rect x="${s*.1}" y="${s*.1}" width="${s*.8}" height="${s*.8}" fill="${color}"/>`,
+      triangle:  `<polygon points="${cx},${s*.08} ${s*.92},${s*.88} ${s*.08},${s*.88}" fill="${color}"/>`,
+      rectangle: `<rect x="${s*.06}" y="${s*.24}" width="${s*.88}" height="${s*.52}" fill="${color}"/>`,
+      oval:      `<ellipse cx="${cx}" cy="${cy}" rx="${s*.43}" ry="${s*.27}" fill="${color}"/>`,
+      diamond:   `<polygon points="${cx},${s*.07} ${s*.93},${cy} ${cx},${s*.93} ${s*.07},${cy}" fill="${color}"/>`,
+      star:      `<polygon points="${star()}" fill="${color}"/>`,
+      heart:     `<path d="${heart}" fill="${color}"/>`,
+      pentagon:  `<polygon points="${poly(5, s*.42)}" fill="${color}"/>`,
+      hexagon:   `<polygon points="${poly(6, s*.42)}" fill="${color}"/>`,
+    })[variant.shape] || ''
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}">${inner}</svg>`
+    return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`
+  }
+
+  if (variant.type === 'number') {
+    const v = variant.value, st = variant.style
+    let inner = ''
+    if (st === 'numeral') {
+      inner = `<text x="${cx}" y="${cy}" dominant-baseline="central" text-anchor="middle" font-size="${s*.58}" font-weight="900" fill="${coral}" font-family="Arial,sans-serif">${v}</text>`
+    } else if (st === 'word') {
+      const words = ['','one','two','three','four','five','six','seven','eight','nine','ten']
+      inner = `<text x="${cx}" y="${cy}" dominant-baseline="central" text-anchor="middle" font-size="${s*.2}" font-weight="800" fill="${coral}" font-family="Arial,sans-serif">${(words[v]||v).toUpperCase()}</text>`
+    } else if (st === 'dots') {
+      const count = Math.min(v, 10)
+      const cols = v <= 4 ? v : 3
+      const rows = Math.ceil(count / cols)
+      const r = s * 0.08, pad = s * 0.15
+      const gapX = cols > 1 ? (s - 2*pad - 2*r) / (cols - 1) : 0
+      const gapY = rows > 1 ? (s - 2*pad - 2*r) / (rows - 1) : 0
+      const startX = cols === 1 ? cx : pad + r
+      const startY = rows === 1 ? cy : pad + r
+      for (let i = 0; i < count; i++) {
+        const col = i % cols, row = Math.floor(i / cols)
+        inner += `<circle cx="${startX + col*gapX}" cy="${startY + row*gapY}" r="${r}" fill="${coral}"/>`
+      }
+    } else if (st === 'tally') {
+      const groups = Math.floor(v / 5), rem = v % 5
+      const bH = s * 0.28, bW = 4, gap = 6
+      const groupW = 4 * (bW + gap) + bH + gap
+      const total = groups + (rem > 0 ? 1 : 0)
+      const startX = cx - total * (groupW + 8) / 2
+      const startY = cy - bH / 2
+      for (let g = 0; g < groups; g++) {
+        const gx = startX + g * (groupW + 8)
+        for (let i = 0; i < 4; i++) inner += `<rect x="${gx + i*(bW+gap)}" y="${startY}" width="${bW}" height="${bH}" fill="${coral}" rx="2"/>`
+        inner += `<line x1="${gx - 4}" y1="${startY + bH - 4}" x2="${gx + groupW - 8}" y2="${startY + 4}" stroke="${coral}" stroke-width="3" stroke-linecap="round"/>`
+      }
+      if (rem > 0) {
+        const gx = startX + groups * (groupW + 8)
+        for (let i = 0; i < rem; i++) inner += `<rect x="${gx + i*(bW+gap)}" y="${startY}" width="${bW}" height="${bH}" fill="${coral}" rx="2"/>`
+      }
+    } else if (st === 'dice' && v <= 6) {
+      const pips = {1:[[50,50]],2:[[28,28],[72,72]],3:[[25,25],[50,50],[75,75]],4:[[28,28],[28,72],[72,28],[72,72]],5:[[25,25],[25,75],[50,50],[75,25],[75,75]],6:[[25,25],[25,75],[50,25],[50,75],[75,25],[75,75]]}
+      inner = `<rect width="${size}" height="${size}" fill="white" rx="16" stroke="#E5E7EB" stroke-width="3"/>`
+      for (const [t,l] of (pips[v]||[])) inner += `<circle cx="${s*l/100}" cy="${s*t/100}" r="${s*.08}" fill="${coral}"/>`
+    } else {
+      inner = `<text x="${cx}" y="${cy}" dominant-baseline="central" text-anchor="middle" font-size="${s*.58}" font-weight="900" fill="${coral}" font-family="Arial,sans-serif">${v}</text>`
+    }
+    const bg = st === 'dice' ? '' : `<rect width="${size}" height="${size}" fill="${coralBg}" rx="8"/>`
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}">${bg}${inner}</svg>`
+    return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`
+  }
+
+  if (variant.type === 'letter') {
+    const letter = variant.case === 'lower' ? variant.value.toLowerCase() : variant.value.toUpperCase()
+    const color = variant.color || coral
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}"><rect width="${size}" height="${size}" fill="${greenBg}" rx="8"/><text x="${cx}" y="${cy}" dominant-baseline="central" text-anchor="middle" font-size="${s*.62}" font-weight="900" fill="${color}" font-family="Arial,sans-serif">${letter}</text></svg>`
+    return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`
+  }
+
+  return null
+}
+
+async function variantToDataURL(variant) {
+  // SVG-rendered types — instant, no network
+  if (variant.type === 'shape' || variant.type === 'number' || variant.type === 'letter') {
+    return variantToSVGDataURL(variant)
+  }
+  // Generalization — Wikimedia Commons direct URL
+  if (variant.type === 'generalization') {
+    try { return await urlToBase64(variant.src) } catch {}
+    return null
+  }
+  // Wikipedia-sourced types
+  if (variant.type === 'wiki' || variant.type === 'color') {
+    const thumbUrl = await fetchWikiThumbUrl(variant.term)
+    if (thumbUrl) {
+      try { return await urlToBase64(thumbUrl) } catch {}
+    }
+    return null
+  }
+  return null
+}
+
+// --- Built-in tab ---
+function BuiltInTab({ targetName, onSelect }) {
+  const [loading, setLoading] = useState(false)
+
+  const handleVariantSelect = async (variant) => {
+    setLoading(true)
+    try {
+      const dataUrl = await variantToDataURL(variant)
+      if (dataUrl) onSelect(dataUrl)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col flex-1 min-h-0 relative">
+      {loading && (
+        <div className="absolute inset-0 z-10 bg-white/80 flex items-center justify-center">
+          <div className="text-sm text-gray-500 font-medium">Fetching image…</div>
+        </div>
+      )}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <PictureLibrary
+          onSelect={handleVariantSelect}
+          showGeneralization={true}
+          height="100%"
+          initialCategory={targetName ? 'animals' : 'shapes'}
+        />
+      </div>
+    </div>
+  )
+}
+
 // --- Main picker ---
 const TABS = [
   { id: 'library',  label: '📚 Library' },
+  { id: 'builtin',  label: '🎨 Built-in' },
   { id: 'unsplash', label: '🔍 Unsplash' },
   { id: 'pexels',   label: '🌿 Pexels' },
 ]
@@ -243,7 +411,7 @@ export function ImagePicker({ targetName, onSelect, onClose, defaultTab = 'libra
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col" style={{ height: '80vh' }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col" style={{ height: '85vh' }}>
         {/* Header */}
         <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
           <div>
@@ -259,7 +427,7 @@ export function ImagePicker({ targetName, onSelect, onClose, defaultTab = 'libra
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${
+              className={`flex-1 py-2.5 text-xs font-semibold transition-colors ${
                 tab === t.id
                   ? 'text-indigo-600 border-b-2 border-indigo-600'
                   : 'text-gray-500 hover:text-gray-800'
@@ -273,6 +441,7 @@ export function ImagePicker({ targetName, onSelect, onClose, defaultTab = 'libra
         {/* Tab content */}
         <div className="flex-1 min-h-0 flex flex-col">
           {tab === 'library'  && <LibraryTab  onSelect={onSelect} />}
+          {tab === 'builtin'  && <BuiltInTab  targetName={targetName} onSelect={onSelect} />}
           {tab === 'unsplash' && <UnsplashTab targetName={targetName} onSelect={onSelect} />}
           {tab === 'pexels'   && <PexelsTab   targetName={targetName} onSelect={onSelect} />}
         </div>
